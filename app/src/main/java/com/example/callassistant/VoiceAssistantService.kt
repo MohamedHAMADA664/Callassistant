@@ -84,10 +84,40 @@ class VoiceAssistantService : Service() {
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
         }
+        muteSystemBeepTemporarily()
         try {
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
             Log.e(TAG, "startListening error: ${e.message}")
+        }
+    }
+
+    /**
+     * SpeechRecognizer بيشغل beep نظام مع كل جلسة استماع جديدة، وده مصدر
+     * صوت "فتح/قفل المايك" المتكرر اللي بيضايق مع الاستماع المستمر.
+     * مفيش API رسمي لإيقافه، لكن الحل الشائع إننا نكتم STREAM_SYSTEM
+     * لحظة بدء الجلسة فقط، وده بيمنع الصوت من غير ما يأثر على باقي
+     * أصوات الموبايل (زي المكالمات نفسها اللي على stream مختلف).
+     */
+    private fun muteSystemBeepTemporarily() {
+        try {
+            val audioManager = getSystemService(AUDIO_SERVICE) as android.media.AudioManager
+            audioManager.adjustStreamVolume(
+                android.media.AudioManager.STREAM_SYSTEM,
+                android.media.AudioManager.ADJUST_MUTE,
+                0
+            )
+            android.os.Handler(mainLooper).postDelayed({
+                audioManager.adjustStreamVolume(
+                    android.media.AudioManager.STREAM_SYSTEM,
+                    android.media.AudioManager.ADJUST_UNMUTE,
+                    0
+                )
+            }, 500)
+        } catch (e: Exception) {
+            // بعض الأجهزة بترفض كتم STREAM_SYSTEM بدون صلاحية إضافية -
+            // مش مشكلة خطيرة، هيفضل الصوت شغال بس البرنامج يكمل عادي
+            Log.w(TAG, "Could not mute system beep: ${e.message}")
         }
     }
 
@@ -160,7 +190,15 @@ class VoiceAssistantService : Service() {
         when {
             // "اتصل على/ب <اسم أو رقم>"
             c.startsWith("اتصل") -> {
-                val target = c.removePrefix("اتصل").replace("على", "").replace("ب", "").trim()
+                // مهم: لازم نشيل بادئة "على" أو "ب" من أول الكلام بس،
+                // مش أي حرف "ب" في أي حتة من الجملة - وإلا أسماء زي
+                // "عبدالله" أو "بسمة" هتتقطع لأن فيها حرف الباء جواها
+                var target = c.removePrefix("اتصل").trim()
+                target = when {
+                    target.startsWith("على ") -> target.removePrefix("على ")
+                    target.startsWith("ب") -> target.removePrefix("ب")
+                    else -> target
+                }.trim()
                 callByNameOrNumber(target)
             }
 
@@ -188,8 +226,50 @@ class VoiceAssistantService : Service() {
                 }
             }
 
+            // مفيش نمط محلي اتطابق - نجرب AI لو مفعّل، وإلا نعتذر
             else -> {
-                TTSHelper.speak("لم أفهم الأمر")
+                tryAiFallback(c)
+            }
+        }
+    }
+
+    /**
+     * لما التحليل المحلي (regex) مايلاقيش أي نمط معروف، بنبعت الجملة
+     * لـ AI (لو مفعّل) كخطة بديلة - مفيد لما الجملة متقالة بصياغة
+     * مختلفة أو Speech-to-Text سمعها مش مضبوطة 100%
+     */
+    private fun tryAiFallback(originalText: String) {
+        if (!Config.AI_ENABLED) {
+            TTSHelper.speak("لم أفهم الأمر")
+            return
+        }
+        AiCommandParser.parse(originalText) { result ->
+            android.os.Handler(mainLooper).post {
+                if (result == null) {
+                    TTSHelper.speak("لم أفهم الأمر")
+                    return@post
+                }
+                when (result.action) {
+                    "call" -> callByNameOrNumber(result.target)
+                    "answer" -> {
+                        InCallServiceImpl.answerCurrentCall()
+                        TTSHelper.speak("تم الرد")
+                    }
+                    "reject" -> {
+                        InCallServiceImpl.rejectCurrentCall()
+                        TTSHelper.speak("تم الرفض")
+                    }
+                    "save_contact" -> {
+                        val number = InCallServiceImpl.currentCall?.details?.handle?.schemeSpecificPart
+                        if (!number.isNullOrEmpty() && result.target.isNotEmpty()) {
+                            val saved = ContactsHelper.saveContact(this, result.target, number)
+                            TTSHelper.speak(if (saved) "تم حفظ الرقم باسم ${result.target}" else "حصل خطأ في الحفظ")
+                        } else {
+                            TTSHelper.speak("مش لاقي رقم لحفظه")
+                        }
+                    }
+                    else -> TTSHelper.speak("لم أفهم الأمر")
+                }
             }
         }
     }

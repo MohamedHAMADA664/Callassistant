@@ -70,15 +70,33 @@ class MainActivity : AppCompatActivity() {
     private fun requestDefaultDialer() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             val roleManager = getSystemService(Context.ROLE_SERVICE) as RoleManager
-            if (roleManager.isRoleAvailable(RoleManager.ROLE_DIALER)) {
+            if (roleManager.isRoleAvailable(RoleManager.ROLE_DIALER) &&
+                !roleManager.isRoleHeld(RoleManager.ROLE_DIALER)
+            ) {
                 val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER)
                 defaultDialerLauncher.launch(intent)
+            } else if (roleManager.isRoleHeld(RoleManager.ROLE_DIALER)) {
+                updateStatus("هو أصلاً تطبيق الاتصال الافتراضي ✅")
+            } else {
+                // بعض الأجهزة (شاومي، سامسونج بعض النسخ) بتخفي أو تعطل الـ
+                // Role ده، فبنفتح إعدادات Default Apps يدويًا كحل بديل
+                openManualDefaultAppsSettings()
             }
         } else {
             val telecomManager = getSystemService(Context.TELECOM_SERVICE) as TelecomManager
             val intent = Intent(TelecomManager.ACTION_CHANGE_DEFAULT_DIALER)
             intent.putExtra(TelecomManager.EXTRA_CHANGE_DEFAULT_DIALER_PACKAGE_NAME, packageName)
             defaultDialerLauncher.launch(intent)
+        }
+    }
+
+    private fun openManualDefaultAppsSettings() {
+        try {
+            val intent = Intent(android.provider.Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS)
+            startActivity(intent)
+            updateStatus("افتح 'Phone app' أو 'تطبيق الهاتف' من الشاشة اللي فتحت واختار مساعد المكالمات")
+        } catch (e: Exception) {
+            updateStatus("الجهاز ده مش بيسمح بتغيير تطبيق الهاتف الافتراضي من التطبيق - جرب من إعدادات الموبايل مباشرة: Settings > Apps > Default apps")
         }
     }
 
