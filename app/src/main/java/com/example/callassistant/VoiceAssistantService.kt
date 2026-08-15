@@ -1,0 +1,238 @@
+package com.example.callassistant
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Intent
+import android.os.Build
+import android.os.Bundle
+import android.os.IBinder
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
+import android.util.Log
+import androidx.core.app.NotificationCompat
+import java.util.Locale
+
+/**
+ * خدمة تعمل باستمرار في الخلفية:
+ * 1) تستمع لكلمة التنبيه (Wake Word) "يا مساعد"
+ * 2) بعد سماعها، تستمع للأمر وتنفذه (اتصال، حفظ رقم، رد، رفض)
+ */
+class VoiceAssistantService : Service() {
+
+    companion object {
+        private const val TAG = "VoiceAssistantService"
+        private const val WAKE_WORD = "يا مساعد"
+        private const val CHANNEL_ID = "voice_assistant_channel"
+        private const val NOTIF_ID = 1001
+    }
+
+    private var speechRecognizer: SpeechRecognizer? = null
+    private var listeningForCommand = false
+    private var consecutiveErrors = 0
+    private val commandTimeoutHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val restartHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    override fun onCreate() {
+        super.onCreate()
+
+        // مهم على أندرويد 14+: لازم RECORD_AUDIO يكون ممنوح فعلاً قبل
+        // startForeground بنوع microphone، وإلا SecurityException وكراش فوري
+        val hasMicPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+            this, android.Manifest.permission.RECORD_AUDIO
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        if (!hasMicPermission) {
+            Log.e(TAG, "RECORD_AUDIO not granted - stopping service")
+            stopSelf()
+            return
+        }
+
+        createNotificationChannel()
+        startForeground(NOTIF_ID, buildNotification("المساعد الصوتي شغال..."))
+        TTSHelper.init(this)
+        startListening()
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        return START_STICKY
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onDestroy() {
+        super.onDestroy()
+        speechRecognizer?.destroy()
+        speechRecognizer = null
+        commandTimeoutHandler.removeCallbacksAndMessages(null)
+        restartHandler.removeCallbacksAndMessages(null)
+    }
+
+    // ---------- الاستماع المستمر ----------
+
+    private fun startListening() {
+        if (speechRecognizer != null) {
+            speechRecognizer?.destroy()
+        }
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
+        speechRecognizer?.setRecognitionListener(recognitionListener)
+
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale("ar"))
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
+        }
+        try {
+            speechRecognizer?.startListening(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "startListening error: ${e.message}")
+        }
+    }
+
+    private fun restartListening() {
+        // backoff بسيط: كل ما الأخطاء المتتالية تزيد، نستنى أكتر قبل
+        // إعادة المحاولة - ده بيوفر بطارية لما مفيش صوت حوالين الموبايل خالص
+        // بدل ما نضرب SpeechRecognizer.startListening كل نص ثانية بلا فايدة
+        val delay = when {
+            consecutiveErrors > 10 -> 3000L
+            consecutiveErrors > 3 -> 1000L
+            else -> 300L
+        }
+        restartHandler.removeCallbacksAndMessages(null)
+        restartHandler.postDelayed({ startListening() }, delay)
+    }
+
+    private val recognitionListener = object : RecognitionListener {
+        override fun onReadyForSpeech(params: Bundle?) {}
+        override fun onBeginningOfSpeech() {}
+        override fun onRmsChanged(rmsdB: Float) {}
+        override fun onBufferReceived(buffer: ByteArray?) {}
+        override fun onEndOfSpeech() {}
+
+        override fun onError(error: Int) {
+            // لو حصل خطأ أو صمت، نعيد الاستماع تلقائيًا (استماع دائم)
+            consecutiveErrors++
+            restartListening()
+        }
+
+        override fun onResults(results: Bundle?) {
+            consecutiveErrors = 0
+            val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+            val text = matches?.firstOrNull()?.trim() ?: ""
+            Log.d(TAG, "Heard: $text")
+            handleRecognizedText(text)
+            restartListening()
+        }
+
+        override fun onPartialResults(partialResults: Bundle?) {}
+        override fun onEvent(eventType: Int, params: Bundle?) {}
+    }
+
+    // ---------- معالجة الكلام ----------
+
+    private fun handleRecognizedText(text: String) {
+        if (text.isEmpty()) return
+
+        if (!listeningForCommand) {
+            // بنستنى كلمة التنبيه الأول
+            if (text.contains(WAKE_WORD) || text.contains("مساعد")) {
+                listeningForCommand = true
+                TTSHelper.speak("قولي")
+                // لو المستخدم قال "يا مساعد" وسكت، نرجع لوضع الانتظار
+                // تلقائيًا بعد 6 ثواني بدل ما نفضل عالقين في وضع الأمر
+                commandTimeoutHandler.removeCallbacksAndMessages(null)
+                commandTimeoutHandler.postDelayed({ listeningForCommand = false }, 6000)
+            }
+            return
+        }
+
+        // دلوقتي هو بيقول الأمر
+        commandTimeoutHandler.removeCallbacksAndMessages(null)
+        listeningForCommand = false
+        executeCommand(text)
+    }
+
+    private fun executeCommand(command: String) {
+        val c = command.trim()
+
+        when {
+            // "اتصل على/ب <اسم أو رقم>"
+            c.startsWith("اتصل") -> {
+                val target = c.removePrefix("اتصل").replace("على", "").replace("ب", "").trim()
+                callByNameOrNumber(target)
+            }
+
+            // "رد" أو "رد على المكالمة"
+            c.contains("رد") -> {
+                InCallServiceImpl.answerCurrentCall()
+                TTSHelper.speak("تم الرد")
+            }
+
+            // "ارفض" أو "ارفض المكالمة"
+            c.contains("ارفض") || c.contains("رفض") -> {
+                InCallServiceImpl.rejectCurrentCall()
+                TTSHelper.speak("تم الرفض")
+            }
+
+            // "سجل الرقم ده باسم <اسم>" - محتاج نكون عارفين آخر رقم دخل مكالمة
+            c.contains("سجل") -> {
+                val name = c.substringAfter("باسم").trim()
+                val number = InCallServiceImpl.currentCall?.details?.handle?.schemeSpecificPart
+                if (!number.isNullOrEmpty() && name.isNotEmpty()) {
+                    val saved = ContactsHelper.saveContact(this, name, number)
+                    TTSHelper.speak(if (saved) "تم حفظ الرقم باسم $name" else "حصل خطأ في الحفظ")
+                } else {
+                    TTSHelper.speak("مش لاقي رقم لحفظه")
+                }
+            }
+
+            else -> {
+                TTSHelper.speak("لم أفهم الأمر")
+            }
+        }
+    }
+
+    private fun callByNameOrNumber(target: String) {
+        if (target.isEmpty()) {
+            TTSHelper.speak("قولي اسم أو رقم مين أتصل عليه")
+            return
+        }
+        // لو المدخل رقم بالفعل
+        val isNumber = target.all { it.isDigit() || it == '+' || it == ' ' }
+        val numberToCall = if (isNumber) {
+            target.replace(" ", "")
+        } else {
+            ContactsHelper.findNumberByName(this, target)
+        }
+
+        if (numberToCall.isNullOrEmpty()) {
+            TTSHelper.speak("مش لاقي حد اسمه $target")
+            return
+        }
+
+        TTSHelper.speak("جاري الاتصال ب $target")
+        ContactsHelper.callNumber(this, numberToCall)
+    }
+
+    // ---------- الإشعار (مطلوب لأي Foreground Service) ----------
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID, "المساعد الصوتي", NotificationManager.IMPORTANCE_LOW
+            )
+            val manager = getSystemService(NotificationManager::class.java)
+            manager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun buildNotification(text: String) =
+        NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("مساعد المكالمات")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setOngoing(true)
+            .build()
+}
