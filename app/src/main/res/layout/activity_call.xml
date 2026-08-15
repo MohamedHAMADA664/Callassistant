@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#1A1A2E"
+    android:padding="32dp"
+    android:gravity="center">
+
+    <TextView
+        android:id="@+id/tvCallStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textColor="#AAAAAA"
+        android:textSize="16sp" />
+
+    <TextView
+        android:id="@+id/tvCallerName"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:textColor="#FFFFFF"
+        android:textSize="28sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/tvCallerNumber"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:textColor="#CCCCCC"
+        android:textSize="16sp" />
+
+    <!-- أزرار وقت الرنين -->
+    <LinearLayout
+        android:id="@+id/ringingControls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="64dp"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/btnReject"
+            android:layout_width="120dp"
+            android:layout_height="70dp"
+            android:layout_marginEnd="24dp"
+            android:backgroundTint="#E53935"
+            android:text="رفض"
+            android:textColor="#FFFFFF" />
+
+        <Button
+            android:id="@+id/btnAnswer"
+            android:layout_width="120dp"
+            android:layout_height="70dp"
+            android:backgroundTint="#43A047"
+            android:text="رد"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
+
+    <!-- أزرار وقت المكالمة الفعلية -->
+    <LinearLayout
+        android:id="@+id/activeControls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="48dp"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center">
+
+            <Button
+                android:id="@+id/btnMute"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_margin="4dp"
+                android:text="كتم الصوت" />
+
+            <Button
+                android:id="@+id/btnSpeaker"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_margin="4dp"
+                android:text="مكبر الصوت" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnSaveContact"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_margin="4dp"
+            android:text="حفظ كجهة اتصال" />
+
+        <Button
+            android:id="@+id/btnEndCall"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:layout_margin="4dp"
+            android:backgroundTint="#E53935"
+            android:text="إنهاء المكالمة"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
+
+</LinearLayout>

@@ -31,8 +31,11 @@ object ContactsHelper {
         return phoneNumber
     }
 
-    /** دور على رقم باسم معين (مطابقة تقريبية) */
+    /** دور على رقم باسم معين (مطابقة تقريبية، متسامحة مع فروق التشكيل والهمزات) */
     fun findNumberByName(context: Context, name: String): String? {
+        val target = ArabicNormalizer.normalize(name)
+        if (target.isEmpty()) return null
+
         val uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI
         val cursor = context.contentResolver.query(
             uri,
@@ -42,19 +45,33 @@ object ContactsHelper {
             ),
             null, null, null
         )
+
+        var bestMatch: String? = null
+        var bestScore = -1
+
         cursor?.use {
             val nameIdx = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
             val numberIdx = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
             while (it.moveToNext()) {
-                val contactName = it.getString(nameIdx) ?: continue
-                if (contactName.contains(name, ignoreCase = true) ||
-                    name.contains(contactName, ignoreCase = true)
-                ) {
-                    return it.getString(numberIdx)
+                val rawContactName = it.getString(nameIdx) ?: continue
+                val contactName = ArabicNormalizer.normalize(rawContactName)
+
+                val score = when {
+                    contactName == target -> 100 // تطابق تام
+                    contactName.startsWith(target) || target.startsWith(contactName) -> 80
+                    contactName.contains(target) || target.contains(contactName) -> 60
+                    // مطابقة أول اسم بس (زي "محمد" يلاقي "محمد أحمد علي")
+                    contactName.split(" ").firstOrNull() == target.split(" ").firstOrNull() -> 50
+                    else -> -1
+                }
+
+                if (score > bestScore) {
+                    bestScore = score
+                    bestMatch = it.getString(numberIdx)
                 }
             }
         }
-        return null
+        return bestMatch
     }
 
     /** حفظ رقم جديد باسم معين */

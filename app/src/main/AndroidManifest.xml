@@ -66,6 +66,26 @@
             </intent-filter>
         </activity>
 
+        <!-- شاشة المكالمة الفعلية (رد/رفض/سبيكر/ميوت) - بتفتح فوق شاشة القفل -->
+        <activity
+            android:name=".CallActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:theme="@style/Theme.CallAssistant" />
+
+        <!-- شاشة جهات الاتصال -->
+        <activity
+            android:name=".ContactsListActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallAssistant" />
+
+        <!-- شاشة سجل المكالمات -->
+        <activity
+            android:name=".CallLogActivity"
+            android:exported="false"
+            android:theme="@style/Theme.CallAssistant" />
+
         <!-- مطلوبة عشان التطبيق يقدر يبقى Default Dialer -->
         <service
             android:name=".InCallServiceImpl"

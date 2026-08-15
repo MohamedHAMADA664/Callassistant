@@ -50,6 +50,12 @@ class MainActivity : AppCompatActivity() {
         binding.btnDefaultDialer.setOnClickListener { requestDefaultDialer() }
         binding.btnStartService.setOnClickListener { startVoiceService() }
         binding.btnStopService.setOnClickListener { stopVoiceService() }
+        binding.btnContacts.setOnClickListener {
+            startActivity(Intent(this, ContactsListActivity::class.java))
+        }
+        binding.btnCallLog.setOnClickListener {
+            startActivity(Intent(this, CallLogActivity::class.java))
+        }
 
         requestAllPermissions()
         checkDefaultDialerAndUpdate()

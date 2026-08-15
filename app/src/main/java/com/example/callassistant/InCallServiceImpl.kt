@@ -1,5 +1,6 @@
 package com.example.callassistant
 
+import android.content.Intent
 import android.telecom.Call
 import android.telecom.InCallService
 
@@ -42,6 +43,13 @@ class InCallServiceImpl : InCallService() {
         super.onCallAdded(call)
         currentCall = call
         call.registerCallback(callCallback)
+
+        // بنفتح شاشتنا الخاصة (CallActivity) بدل ما نسيب أندرويد يستخدم
+        // شاشة عامة افتراضية - ده أساس مشكلة "بيفتح واجهة الاتصال العادية"
+        val intent = Intent(this, CallActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        startActivity(intent)
     }
 
     override fun onCallRemoved(call: Call) {
